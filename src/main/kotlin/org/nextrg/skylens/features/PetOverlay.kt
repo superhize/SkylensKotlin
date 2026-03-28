@@ -11,11 +11,10 @@ import net.minecraft.world.item.ItemStack
 import net.minecraft.world.item.Items
 import org.nextrg.skylens.ModConfig
 import org.nextrg.skylens.api.Pets.getCurrentPet
+import org.nextrg.skylens.api.Pets.getCurrentPetRarity
 import org.nextrg.skylens.api.Pets.getPetHeldItem
 import org.nextrg.skylens.api.Pets.getPetLevel
 import org.nextrg.skylens.api.Pets.getPetMaxLevel
-import org.nextrg.skylens.api.Pets.getPetRarity
-import org.nextrg.skylens.api.Pets.getPetRarityText
 import org.nextrg.skylens.api.Pets.getPetXp
 import org.nextrg.skylens.features.HudEditor.Companion.hudEditor
 import org.nextrg.skylens.helpers.OtherUtil.getTextureFromNeu
@@ -97,7 +96,7 @@ object PetOverlay {
 
             val pet = getCurrentPet()
             currentPet = pet
-            rarity = getPetRarity(getPetRarityText(pet.customName))
+            rarity = getCurrentPetRarity()
             updateTheme()
         }
     }

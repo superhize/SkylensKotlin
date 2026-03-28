@@ -31,6 +31,15 @@ repositories {
     maven { url = uri("https://maven.resourcefulbees.com/repository/maven-releases/") }
     maven { url = uri("https://pkgs.dev.azure.com/djtheredstoner/DevAuth/_packaging/public/maven/v1") }
     maven { url = uri("https://maven.teamresourceful.com/repository/maven-public/") }
+    maven { url = uri("https://repo.hypixel.net/repository/Hypixel") }
+    exclusiveContent {
+        forRepository {
+            maven("https://api.modrinth.com/maven")
+        }
+        filter {
+            includeGroup("maven.modrinth")
+        }
+    }
 }
 
 dependencies {
@@ -49,6 +58,15 @@ dependencies {
     modImplementation("com.teamresourceful.resourcefullib:resourcefullib-fabric-1.21.11:3.11.0")
     modImplementation("earth.terrarium.olympus:olympus-fabric-1.21.11:1.7.0")
     include("earth.terrarium.olympus:olympus-fabric-1.21.11:1.7.0")
+
+    api("tech.thatgravyboat:skyblock-api:4.0.0") {
+        capabilities { requireCapability("tech.thatgravyboat:skyblock-api-1.21.11") }
+    }
+    include("tech.thatgravyboat:skyblock-api:4.0.0") {
+        capabilities { requireCapability("tech.thatgravyboat:skyblock-api-1.21.11-remapped") }
+    }
+
+    modRuntimeOnly("maven.modrinth:hypixel-mod-api:1.0.1+build.1+mc1.21")
 
     modRuntimeOnly("me.djtheredstoner:DevAuth-fabric:1.2.2")
 }
