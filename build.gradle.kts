@@ -61,24 +61,16 @@ dependencies {
     modImplementation("earth.terrarium.olympus:olympus-fabric-1.21.11:1.7.0")
     include("earth.terrarium.olympus:olympus-fabric-1.21.11:1.7.0")
 
-    api("tech.thatgravyboat:skyblock-api:4.0.0") {
+    api("tech.thatgravyboat:skyblock-api:4.0.8") {
         capabilities { requireCapability("tech.thatgravyboat:skyblock-api-1.21.11") }
     }
-    include("tech.thatgravyboat:skyblock-api:4.0.0") {
+    include("tech.thatgravyboat:skyblock-api:4.0.8") {
         capabilities { requireCapability("tech.thatgravyboat:skyblock-api-1.21.11-remapped") }
     }
-
-    compileOnly(ksp("me.owdding.ktmodules:KtModules:1.0.5")!!)
-    compileOnly(ksp("me.owdding.ktcodecs:KtCodecs:1.0.25")!!)
 
     modRuntimeOnly("maven.modrinth:hypixel-mod-api:1.0.1+build.1+mc1.21")
 
     modRuntimeOnly("me.djtheredstoner:DevAuth-fabric:1.2.2")
-}
-
-ksp {
-    arg("meowdding.project_name", project.name)
-    arg("meowdding.package", "org.nextrg.skylens.generated")
 }
 
 tasks.processResources {
