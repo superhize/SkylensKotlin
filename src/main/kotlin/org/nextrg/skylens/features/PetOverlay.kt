@@ -93,17 +93,6 @@ object PetOverlay {
         "common", intArrayOf(0xFF9A9A9A.toInt(), 0xFFFFFFFF.toInt(), 0xFF636363.toInt())
     )
 
-    @Subscription
-    fun onWorldChange(event: IslandChangeEvent) {
-        updatePetScope?.cancel()
-        hidden = true
-        transition = 0f
-        transitionX = 0f
-        transitionY = 0f
-        animatedLevelUp = 0f
-        println("[Skylens][PetOverlayDebug] IslandChange old=${event.old} new=${event.new}, overlay reset")
-    }
-
     fun updatePet() {
         updatePetScope?.cancel()
         updatePetScope = scope.launch {

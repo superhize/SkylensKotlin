@@ -13,20 +13,19 @@ import org.nextrg.skylens.helpers.OtherUtil.getTextureFromNeu
 import org.nextrg.skylens.helpers.OtherUtil.onSkyblock
 import tech.thatgravyboat.skyblockapi.api.data.SkyBlockRarity
 import tech.thatgravyboat.skyblockapi.api.events.base.Subscription
+import tech.thatgravyboat.skyblockapi.api.events.base.predicates.OnlyOnSkyBlock
 import tech.thatgravyboat.skyblockapi.api.events.base.predicates.OnlyWidget
 import tech.thatgravyboat.skyblockapi.api.events.base.predicates.TimePassed
 import tech.thatgravyboat.skyblockapi.api.events.info.TabWidget
 import tech.thatgravyboat.skyblockapi.api.events.info.TabWidgetChangeEvent
 import tech.thatgravyboat.skyblockapi.api.events.location.IslandChangeEvent
-import tech.thatgravyboat.skyblockapi.api.events.render.RenderWorldEvent
 import tech.thatgravyboat.skyblockapi.api.events.time.TickEvent
 import tech.thatgravyboat.skyblockapi.api.profile.PetsAPI
 import kotlin.math.abs
 
 @Module
 object Pets {
-    private const val DEBUG_PETS = false
-    private const val EMPTY_PET_GRACE_MS = 100L
+    private const val DEBUG_PETS = true
 
     private var currentPet: ItemStack = ItemStack(Items.BONE)
     private var currentPetName: String? = null
@@ -47,9 +46,17 @@ object Pets {
     @Subscription
     fun onIslandChange(event: IslandChangeEvent) {
         debug("IslandChange old=${event.old} new=${event.new}")
+
         if (currentPetName != null) {
             lastPetDataAt = System.currentTimeMillis()
+            if (!overlayVisible) {
+                showOverlay()
+                overlayVisible = true
+                debug("Show overlay on island change using cached pet=$currentPetName")
+            }
         }
+
+        syncFromSkyblockApi("island change")
     }
 
     @Subscription
@@ -60,6 +67,7 @@ object Pets {
     }
 
     @Subscription(TickEvent::class)
+    @OnlyOnSkyBlock
     @TimePassed("1s")
     fun onTick(){
         syncFromSkyblockApi("tick")
@@ -85,35 +93,14 @@ object Pets {
         return string.contains(Regex("(Golden|Jade|Rose) Dragon"))
     }
 
-    private fun resetPetState(reason: String) {
-        currentPetName = null
-        currentRarity = "common"
-        currentPet = ItemStack(Items.BONE)
-        level = 1
-        maxLevel = 100
-        xp = 0f
-        heldItem = ""
-        lastPetDataAt = 0L
-
-        if (overlayVisible) {
-            overlayVisible = false
-            hideOverlay()
-        }
-
-        debug("State reset ($reason)")
-    }
-
     private fun syncFromSkyblockApi(source: String) {
         val petName = PetsAPI.pet?.trim().orEmpty()
         if (petName.isEmpty()) {
-            val hasCachedPet = currentPetName != null
-            val withinGrace = hasCachedPet && (System.currentTimeMillis() - lastPetDataAt) <= EMPTY_PET_GRACE_MS
-
-            if (withinGrace && onSkyblock()) {
+            if (currentPetName != null && onSkyblock()) {
                 if (!overlayVisible) {
                     showOverlay()
                     overlayVisible = true
-                    debug("Fallback from $source using cached pet=$currentPetName (widget PET absent)")
+                    debug("Fallback from $source using cached pet=$currentPetName")
                 }
                 return
             }
