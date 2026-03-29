@@ -1,10 +1,12 @@
+import org.gradle.kotlin.dsl.compileOnly
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 plugins {
-    kotlin("jvm") version "2.1.21"
+    kotlin("jvm") version "2.2.20"
     id("fabric-loom") version "1.14-SNAPSHOT"
     id("maven-publish")
+    id("com.google.devtools.ksp") version "2.2.20-2.0.2"
 }
 
 version = project.property("mod_version") as String
@@ -66,9 +68,17 @@ dependencies {
         capabilities { requireCapability("tech.thatgravyboat:skyblock-api-1.21.11-remapped") }
     }
 
+    compileOnly(ksp("me.owdding.ktmodules:KtModules:1.0.5")!!)
+    compileOnly(ksp("me.owdding.ktcodecs:KtCodecs:1.0.25")!!)
+
     modRuntimeOnly("maven.modrinth:hypixel-mod-api:1.0.1+build.1+mc1.21")
 
     modRuntimeOnly("me.djtheredstoner:DevAuth-fabric:1.2.2")
+}
+
+ksp {
+    arg("meowdding.project_name", project.name)
+    arg("meowdding.package", "org.nextrg.skylens.generated")
 }
 
 tasks.processResources {

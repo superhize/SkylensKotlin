@@ -1,6 +1,7 @@
 package org.nextrg.skylens.features
 
 import kotlinx.coroutines.*
+import me.owdding.ktmodules.Module
 import net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry
 import net.fabricmc.fabric.api.client.rendering.v1.hud.VanillaHudElements
 import net.minecraft.client.DeltaTracker
@@ -32,11 +33,14 @@ import org.nextrg.skylens.pipelines.Renderables.drawPie
 import org.nextrg.skylens.pipelines.Renderables.drawPieGradient
 import org.nextrg.skylens.pipelines.Renderables.roundGradient
 import org.nextrg.skylens.pipelines.Renderables.roundRectangleFloat
+import tech.thatgravyboat.skyblockapi.api.events.base.Subscription
+import tech.thatgravyboat.skyblockapi.api.events.location.IslandChangeEvent
 import java.lang.Math.clamp
 import java.util.*
 import kotlin.math.max
 import kotlin.math.sin
 
+@Module
 object PetOverlay {
     private val scope = CoroutineScope(Dispatchers.Default)
     private var currentPet: ItemStack = ItemStack(Items.BONE)
@@ -88,6 +92,17 @@ object PetOverlay {
         "uncommon", intArrayOf(-0xea75eb, -0xab02ac, -0xebc5ec),
         "common", intArrayOf(0xFF9A9A9A.toInt(), 0xFFFFFFFF.toInt(), 0xFF636363.toInt())
     )
+
+    @Subscription
+    fun onWorldChange(event: IslandChangeEvent) {
+        updatePetScope?.cancel()
+        hidden = true
+        transition = 0f
+        transitionX = 0f
+        transitionY = 0f
+        animatedLevelUp = 0f
+        println("[Skylens][PetOverlayDebug] IslandChange old=${event.old} new=${event.new}, overlay reset")
+    }
 
     fun updatePet() {
         updatePetScope?.cancel()
@@ -276,21 +291,22 @@ object PetOverlay {
 
     private fun updateTheme() {
         val configTheme = ModConfig.petOverlayTheme.toString()
-        val isCustom = configTheme == "Custom"
+        val isCustom = configTheme=="Custom"
 
         val displayTheme = when {
-            configTheme == "Pet" -> rarity
+            configTheme=="Pet" -> rarity
             isCustom -> rarity
             else -> configTheme
         }
 
         return if (!isCustom) {
             val colors = rarityColors[displayTheme.lowercase()]
-            if (colors != null) {
+            if (colors!=null) {
                 cacheColor1 = colors[0]
                 cacheColor2 = colors[1]
                 cacheColor3 = colors[2]
-            } else { }
+            } else {
+            }
         } else {
             cacheColor1 = ModConfig.petOverlayColor2.rgb
             cacheColor2 = ModConfig.petOverlayColor1.rgb
@@ -299,10 +315,12 @@ object PetOverlay {
     }
 
     fun render(guiGraphics: GuiGraphics, isHudEditor: Boolean = false) {
-        if (!isHudEditor && (!ModConfig.petOverlay || transition == 0f) || !onSkyblock()) return
+        if (!isHudEditor && (!ModConfig.petOverlay || transition==0f) || !onSkyblock()) return
 
         val (x, y) = getPosition()
-        var color1 = cacheColor1; var color2 = cacheColor2; val color3 = cacheColor3
+        var color1 = cacheColor1;
+        var color2 = cacheColor2;
+        val color3 = cacheColor3
 
         val textColor = color2
         if (invertColor) {
@@ -310,7 +328,7 @@ object PetOverlay {
         }
 
         var yO = y
-        if (idleAnimHover && !hudEditor && transition != 0f) {
+        if (idleAnimHover && !hudEditor && transition!=0f) {
             yO += (sin(getIdleProgress(2700.0) * 2 * Math.PI) * 0.7f).toFloat()
         }
 
@@ -331,7 +349,7 @@ object PetOverlay {
     }
 
     private fun renderText(guiGraphics: GuiGraphics, x: Float, y: Float, color: Int) {
-        val isLevelMax = level == maxLevel
+        val isLevelMax = level==maxLevel
 
         val iconX = x + 3 + (if (!isBarType) 1 else 0) + if (isBarType && flipped) 29 else 0
         val iconY = y - 17 + (if (!isBarType) 4.5f else 0f)

@@ -46,11 +46,11 @@ public class CircleChartPIPRenderer extends PictureInPictureRenderer<CircleChart
     protected void renderToTexture(State state, PoseStack pose) {
         final float scale = Minecraft.getInstance().getWindow().getGuiScale();
         final float padding = 4f;
-        
+
         final Vector2f size = new Vector2f(state.outerRadius * 2f * scale, state.outerRadius * 2f * scale);
         final float fSize = size.x + (padding * scale);
         final Vector2f center = getFloatCenter(state, new Vector2f(state.fx0, state.fx1), new Vector2f(state.fy0, state.fy1), scale);
-        
+
         BufferBuilder buffer = Tesselator.getInstance()
                 .begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR);
         

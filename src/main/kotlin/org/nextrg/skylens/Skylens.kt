@@ -14,10 +14,15 @@ import org.nextrg.skylens.ModConfig.openConfig
 import org.nextrg.skylens.api.Pets
 import org.nextrg.skylens.api.PlayerStats
 import org.nextrg.skylens.features.*
+import org.nextrg.skylens.generated.SkylensKotlinModules
 import org.nextrg.skylens.pipelines.pips.*
+import tech.thatgravyboat.skyblockapi.api.SkyBlockAPI
 
 class Skylens : ClientModInitializer {
     override fun onInitializeClient() {
+
+        SkylensKotlinModules.init { SkyBlockAPI.eventBus.register(it) }
+
         getModContainer()
         ModConfig().init()
         registerCommands()
@@ -33,7 +38,6 @@ class Skylens : ClientModInitializer {
         }
 
         // APIs
-        Pets.init()
         PlayerStats.init()
 
         MissingEnchants.prepare()

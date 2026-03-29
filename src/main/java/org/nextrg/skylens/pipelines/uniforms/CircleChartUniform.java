@@ -23,7 +23,7 @@ public record CircleChartUniform(
         int reverse,
         int invert
 ) implements RenderPipelineUniforms {
-    
+
     public static final String NAME = "CircleChartUniform";
     
     public static final Supplier<DynamicUniformStorage<CircleChartUniform>> STORAGE =
