@@ -53,6 +53,8 @@ object Pets {
     private var noCacheRarity = "common"
 
     private var lastUpdate = System.currentTimeMillis()
+    private val tabCooldownLiveMs = 500L
+    private val tabCooldownFallbackMs = 160L
     private var updateByTab = true
 
     private var currentPet: ItemStack = ItemStack(Items.BONE)
@@ -60,12 +62,26 @@ object Pets {
     private var maxLevel: Int = 100
     private var xp: Float = 0f
     private var heldItem: String = ""
+    private var currentPetName: String = ""
+    private var currentRarity: String = "common"
 
     private var loadedProfileId: String? = null
     private var restoredForProfile = false
+    private var pendingTabName: String? = null
+    private var pendingTabLevel: Int? = null
+    private var pendingTabStableTicks = 0
+    private var fastSyncUntilMs = 0L
+
+    private fun enableFastSync(durationMs: Long = 1500L) {
+        fastSyncUntilMs = System.currentTimeMillis() + durationMs
+    }
+
+    private fun requiredTabSnapshots(nowMs: Long): Int {
+        return if (nowMs <= fastSyncUntilMs) 1 else 2
+    }
 
     fun init() {
-        ClientReceiveMessageEvents.ALLOW_GAME.register(ClientReceiveMessageEvents.AllowGame { text, overlay ->
+         ClientReceiveMessageEvents.ALLOW_GAME.register(ClientReceiveMessageEvents.AllowGame { text, overlay ->
             messageEvents(text)
             return@AllowGame true
         })
@@ -97,11 +113,12 @@ object Pets {
 
     fun saveToFile() {
         storage.mutateAndSave { data ->
-            data.name = normalizePetNameForStorage(currentPet.customName?.string.orEmpty())
+            val fallbackName = normalizePetName(currentPet.customName?.string.orEmpty())
+            data.name = (if (currentPetName.isNotBlank()) currentPetName else fallbackName)
             data.level = level
             data.maxLevel = maxLevel
             data.xp = xp
-            data.rarity = getPetRarity(getPetRarityText(currentPet.customName))
+            data.rarity = currentRarity
             data.heldItem = heldItem
         }
     }
@@ -110,8 +127,9 @@ object Pets {
         val data = storage.data
         if (data.name.isBlank()) return false
 
-        val normalizedPetName = normalizePetNameForStorage(data.name)
-        currentPet = getTextureFromNeu(normalizedPetName, true)
+        currentPetName = normalizePetName(data.name)
+        currentRarity = data.rarity.ifBlank { "common" }
+        currentPet = getTextureFromNeu(currentPetName, true)
 
         noCacheMode = true
         level = data.level
@@ -121,27 +139,19 @@ object Pets {
 
         noCacheLevel = data.level
         noCacheMaxLevel = data.maxLevel
-        noCacheRarity = data.rarity.ifBlank { "common" }
+        noCacheRarity = currentRarity
         return true
-    }
-
-    private fun normalizePetNameForStorage(rawName: String): String {
-        val stripped = ChatFormatting.stripFormatting(rawName).orEmpty()
-        val withoutStars = stripped
-            .replace(" ✦", "")
-            .replace("⭐ ", "")
-            .replace("⭐", "")
-            .trim()
-
-        return removeLevel(withoutStars)
     }
 
     private fun restoreFromStorageIfNeeded() {
         val profileId = ProfileAPI.profileId?.toString() ?: return
 
-        if (profileId!=loadedProfileId) {
+        if (profileId != loadedProfileId) {
             loadedProfileId = profileId
             restoredForProfile = false
+            pendingTabName = null
+            pendingTabLevel = null
+            pendingTabStableTicks = 0
         }
 
         if (restoredForProfile) return
@@ -166,7 +176,9 @@ object Pets {
         if (noCacheMode) {
             return noCacheRarity
         }
-        return colorToRarity(element.style.color.toString())
+
+        val color = element.style.color?.toString()
+        return if (color.isNullOrBlank()) currentRarity else colorToRarity(color)
     }
 
     fun getPetRarityText(customName: Component?): Component {
@@ -179,7 +191,7 @@ object Pets {
     }
 
     fun isGoldenDragon(string: String): Boolean {
-        return string.contains(Regex("(Golden|Jade) Dragon"))
+        return string.contains(Regex("(Golden|Jade|Rose) Dragon"))
     }
 
     private fun checkPetScreen(client: Minecraft) {
@@ -231,12 +243,15 @@ object Pets {
         return list.withIndex().fold(3 to 45) { (lvlIdx, xpIdx), (i, text) ->
             val s = text.toString()
             val newLvl = if ("[Lvl" in s) i else lvlIdx
-            val newXp = if ("XP" in s && "/" in s && "%" in s) i else xpIdx
+            val hasXpKeyword = s.contains("XP", ignoreCase = true)
+            val hasPercent = s.contains("%")
+            val hasSeparator = s.contains("/") || s.contains(":")
+            val newXp = if (hasXpKeyword && hasPercent && hasSeparator) i else xpIdx
             newLvl to newXp
         }
     }
 
-    private fun isFavorite(text: Component?) = text?.string?.contains("⭐")==true
+    private fun isFavorite(text: Component?) = text?.string?.contains("⭐") == true
     private fun favoriteMargin(text: Component?) = if (isFavorite(text)) 1 else 0
 
     private fun parseLevel(text: Component?, index: Int): Int {
@@ -246,44 +261,118 @@ object Pets {
             ?.toIntOrNull() ?: 1
     }
 
-    private fun parseXp(text: Component?): Float {
-        return text?.siblings?.getOrNull(4 + favoriteMargin(text))?.string
-            ?.removePrefix("(")
-            ?.removeSuffix("%)")
-            ?.trim()
-            ?.toFloatOrNull()
-            ?.div(100) ?: 0f
+    private fun parseXpOrNull(text: Component?): Float? {
+        if (text == null) return null
+
+        val candidates = buildList {
+            add(text.string)
+            add(text.toString())
+            text.siblings.forEach { add(it.string) }
+        }
+
+        for (candidate in candidates) {
+            val match = Regex("""([0-9]+(?:[.,][0-9]+)?)%""").find(candidate)
+            val raw = match?.groupValues?.getOrNull(1) ?: continue
+            val normalized = raw.replace(',', '.')
+            val value = normalized.toFloatOrNull() ?: continue
+            return (value / 100f).coerceIn(0f, 1f)
+        }
+
+        return null
+    }
+
+    private fun extractXpFromTab(list: List<Component>, levelIndex: Int, xpIndex: Int): Float? {
+        val preferred = listOfNotNull(
+            list.getOrNull(xpIndex),
+            list.getOrNull(levelIndex + 1),
+            list.getOrNull(levelIndex + 2),
+            list.getOrNull(levelIndex - 1)
+        )
+
+        preferred.firstNotNullOfOrNull { candidate ->
+            if (candidate.toString().contains("XP", ignoreCase = true)) parseXpOrNull(candidate) else null
+        }?.let { return it }
+
+        preferred.firstNotNullOfOrNull(::parseXpOrNull)?.let { return it }
+
+        list.firstNotNullOfOrNull { candidate ->
+            if (candidate.toString().contains("XP", ignoreCase = true)) parseXpOrNull(candidate) else null
+        }?.let { return it }
+
+        return null
     }
 
     private fun readTab(client: Minecraft, cooldown: Boolean) {
-        if (System.currentTimeMillis() - lastUpdate < 2500 && cooldown) return
-        lastUpdate = System.currentTimeMillis()
+        val now = System.currentTimeMillis()
+        val cooldownMs = if (noCacheMode) tabCooldownFallbackMs else tabCooldownLiveMs
+        if (cooldown && now - lastUpdate < cooldownMs) return
+        lastUpdate = now
 
         if (!updateByTab) return
 
         val currentPetText = getPetRarityText(currentPet.customName)
-        if (currentPetText==Component.empty() && !noCacheMode) return
+        if (currentPetText == Component.empty() && !noCacheMode && currentPetName.isBlank()) return
 
-        val currentRarity = getPetRarity(currentPetText)
+        val currentKnownName = if (currentPetName.isNotBlank()) currentPetName else normalizePetName(currentPetText.string)
 
         val list = getTabData(client)
         val (levelIndex, xpIndex) = findTabIndices(list)
 
         val tabPet = list.getOrNull(levelIndex) ?: return
-        if (tabPet.siblings.size < 3) return
+        if (tabPet.siblings.size < 3 || !tabPet.string.contains("[Lvl")) return
 
         val tabName = tabPet.siblings[2]
         val tabRarity = getPetRarity(tabName)
         val tabPetName = tabName.string
+        val normalizedTabName = normalizePetName(tabPetName)
+        if (normalizedTabName.isBlank()) return
 
-        if (currentPetText.string!=tabPetName && currentRarity!=tabRarity && !noCacheMode) return
+        val parsedLevel = parseLevel(tabPet, 1)
+        if (parsedLevel <= 0) return
 
-        level = parseLevel(tabPet, 1)
+        if (!noCacheMode) {
+            if (currentKnownName.isNotBlank() && normalizedTabName != currentKnownName) return
+            if (currentKnownName.isBlank() && tabRarity != currentRarity) return
+        }
+
+        if (noCacheMode) {
+            val sameSnapshot = pendingTabName == normalizedTabName && pendingTabLevel == parsedLevel
+            if (sameSnapshot) {
+                pendingTabStableTicks++
+            } else {
+                pendingTabName = normalizedTabName
+                pendingTabLevel = parsedLevel
+                pendingTabStableTicks = 1
+            }
+
+            val requiredSnapshots = requiredTabSnapshots(now)
+            if (pendingTabStableTicks < requiredSnapshots) return
+        }
+
+        val hadDifferentPet = currentPetName.isNotBlank() && currentPetName != normalizedTabName
+        currentPetName = normalizedTabName
+        currentRarity = tabRarity
+
+        level = parsedLevel
         maxLevel = if (isGoldenDragon(tabPetName)) 200 else 100
-        xp = if (!tooltipFromItemStack(currentPet).toString().contains("MAX LEVEL")) {
-            parseXp(list.getOrNull(xpIndex))
-        } else {
+
+        val xpFromTab = parseXpOrNull(list.getOrNull(xpIndex))
+            ?: extractXpFromTab(list, levelIndex, xpIndex)
+
+        xp = if (level >= maxLevel) {
             1f
+        } else {
+            xpFromTab ?: xp
+        }
+
+        noCacheLevel = level
+        noCacheMaxLevel = maxLevel
+        noCacheRarity = currentRarity
+        noCacheMode = false
+
+        if (hadDifferentPet && currentPetName.isNotBlank()) {
+            currentPet = getTextureFromNeu(currentPetName, true)
+            updatePet()
         }
 
         updateStats()
@@ -355,12 +444,27 @@ object Pets {
         return petName.substringAfter("] ", petName).trim()
     }
 
+    private fun normalizePetName(rawName: String): String {
+        val noFormat = ChatFormatting.stripFormatting(rawName).orEmpty()
+        val noSymbols = noFormat
+            .replace(" ✦", "")
+            .replace("⭐ ", "")
+            .replace("⭐", "")
+            .trim()
+        return removeLevel(noSymbols)
+    }
+
     private fun findPetFromInventory(petName: String, rarity: String) {
         val noSymbol = petName.replace(" ✦", "").replace("⭐ ", "")
-        val petNameWithoutLvl = removeLevel(noSymbol)
+        val petNameWithoutLvl = normalizePetName(noSymbol)
+
+        if (petNameWithoutLvl.isNotBlank()) {
+            currentPetName = petNameWithoutLvl
+            currentRarity = rarity.ifBlank { currentRarity }
+        }
 
         if (noCacheMode) {
-            setPet(getTextureFromNeu(noSymbol, true))
+            setPet(getTextureFromNeu(petNameWithoutLvl.ifBlank { noSymbol }, true))
             return
         }
 
@@ -381,6 +485,8 @@ object Pets {
     private fun setPet(pet: ItemStack) {
         preventTabUpdate()
         currentPet = pet
+        val rarityText = getPetRarityText(pet.customName)
+        currentRarity = getPetRarity(rarityText)
         updatePet()
         getPetStats(pet)
     }
@@ -401,6 +507,14 @@ object Pets {
                         errorMessage("Failed to retrieve summoned pet rarity", e)
                     }
                     findPetFromInventory(matcher.group(2), rarity)
+                    currentPetName = normalizePetName(matcher.group(2))
+                    currentRarity = rarity
+                    pendingTabName = null
+                    pendingTabLevel = null
+                    pendingTabStableTicks = 0
+                    enableFastSync()
+                    scheduler.schedule({ readTab(Minecraft.getInstance(), false) }, 120, TimeUnit.MILLISECONDS)
+                    scheduler.schedule({ readTab(Minecraft.getInstance(), false) }, 320, TimeUnit.MILLISECONDS)
                     showOverlay()
                 }
                 if (matcher.group(1)=="despawned") {
@@ -414,6 +528,9 @@ object Pets {
             if (matcher.find()) {
                 val autopetLevel = matcher.group(1)
                 val autopetPet = matcher.group(2)
+                currentPetName = normalizePetName(autopetPet)
+                val parsedLevel = autopetLevel.toIntOrNull() ?: 1
+                val parsedMax = if (isGoldenDragon(autopetPet)) 200 else 100
                 val matchIndex = string.indexOf(autopetLevel) + autopetLevel.length - 2
                 var rarity = "common"
 
@@ -425,11 +542,27 @@ object Pets {
                     }
                 }
 
-                noCacheLevel = autopetLevel.toIntOrNull() ?: 1
+                level = parsedLevel
+                maxLevel = parsedMax
+                xp = 0f
+                noCacheLevel = parsedLevel
                 noCacheRarity = rarity
-                noCacheMaxLevel = if (isGoldenDragon(autopetPet)) 200 else 100
+                noCacheMaxLevel = parsedMax
+                noCacheMode = true
+                currentRarity = rarity
+
+                pendingTabName = null
+                pendingTabLevel = null
+                pendingTabStableTicks = 0
+                enableFastSync()
+
+                currentPet = getTextureFromNeu(currentPetName, true)
+                updatePet()
+                updateStats()
 
                 findPetFromInventory(autopetPet, rarity)
+                scheduler.schedule({ readTab(Minecraft.getInstance(), false) }, 120, TimeUnit.MILLISECONDS)
+                scheduler.schedule({ readTab(Minecraft.getInstance(), false) }, 320, TimeUnit.MILLISECONDS)
                 showOverlay()
             }
         }
@@ -444,6 +577,7 @@ object Pets {
             val matcher = LEVELUP_PATTERN.matcher(content)
             if (matcher.find() && content.contains(getPetRarityText(currentPet.customName).string)) {
                 level = matcher.group(2)?.toIntOrNull() ?: level
+                noCacheLevel = level
                 xp = 0f
                 updateStats()
                 levelUp()
